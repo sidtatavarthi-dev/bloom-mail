@@ -22,6 +22,27 @@ const TYPE_LABELS = {
   'lavender-sprig': 'Lavender',
 };
 
+const WRAP_COLORS = [
+  { name: 'blush',    hex: '#f7d6e6' },
+  { name: 'lavender', hex: '#e3d6f7' },
+  { name: 'mint',     hex: '#d9f0e3' },
+  { name: 'butter',   hex: '#faf0d0' },
+  { name: 'peach',    hex: '#fbe0cf' },
+  { name: 'cream',    hex: '#fffaf5' },
+];
+
+const RIBBON_COLORS = [
+  { name: 'purple', hex: '#b48be0' },
+  { name: 'pink',   hex: '#ff8fb3' },
+  { name: 'gold',   hex: '#e3b23c' },
+  { name: 'sage',   hex: '#8fae8f' },
+  { name: 'berry',  hex: '#c65d7b' },
+  { name: 'cream',  hex: '#f3e9da' },
+];
+
+const WRAP_PATTERNS = ['plain', 'dots', 'stripes'];
+const PATTERN_LABELS = { plain: 'Plain', dots: 'Dots', stripes: 'Stripes' };
+
 // ===================== color helpers =====================
 
 function shade(hex, percent) {
@@ -36,7 +57,8 @@ function shade(hex, percent) {
 }
 
 // ===================== SVG generators =====================
-// each flower is drawn in a 100 x 160 viewBox, stem at bottom, bloom near top.
+// each flower is drawn in a 100 x 130 viewBox, short stem at bottom (the rest
+// of the stem is implied hidden inside the paper wrap), bloom near top.
 
 const STEM_GREEN = '#7cb47f';
 const LEAF_GREEN = '#8fc78f';
@@ -52,14 +74,14 @@ function petalRing(cx, cy, count, rx, ry, distance, color, rotationOffset) {
 
 function stemAndLeaves(topY) {
   return `
-    <line x1="50" y1="${topY}" x2="50" y2="158" stroke="${STEM_GREEN}" stroke-width="4" stroke-linecap="round"/>
-    <path d="M50 118 C 30 112, 20 126, 14 140 C 30 138, 44 130, 50 118 Z" fill="${LEAF_GREEN}"/>
-    <path d="M50 130 C 70 124, 82 138, 88 150 C 70 150, 56 142, 50 130 Z" fill="${LEAF_GREEN}"/>
+    <line x1="50" y1="${topY}" x2="50" y2="126" stroke="${STEM_GREEN}" stroke-width="4" stroke-linecap="round"/>
+    <path d="M50 92 C 32 87, 23 99, 18 111 C 33 109, 45 102, 50 92 Z" fill="${LEAF_GREEN}"/>
+    <path d="M50 102 C 68 97, 79 109, 84 119 C 69 119, 57 112, 50 102 Z" fill="${LEAF_GREEN}"/>
   `;
 }
 
 function svgWrap(inner) {
-  return `<svg viewBox="0 0 100 160" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
+  return `<svg viewBox="0 0 100 130" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
 }
 
 function drawDaisy(color) {
@@ -151,11 +173,101 @@ function flowerSVG(type, colorHex) {
   return fn(colorHex);
 }
 
+// ===================== wrap / ribbon SVG generators =====================
+// wrap viewBox 200x210: apex (tied point) near the bottom, wide curved
+// opening near the top, so stems gather at the ribbon and blooms fan above.
+
+function wrapPatternGroup(color, pattern) {
+  const dot = shade(color, -0.16);
+  if (pattern === 'dots') {
+    let out = '';
+    for (let y = 34; y < 210; y += 22) {
+      for (let x = 6; x < 200; x += 22) {
+        const offset = (Math.round((y - 34) / 22) % 2 === 0) ? 0 : 11;
+        out += `<circle cx="${x + offset}" cy="${y}" r="3.6" fill="${dot}" opacity="0.4"/>`;
+      }
+    }
+    return out;
+  }
+  if (pattern === 'stripes') {
+    let out = '';
+    for (let x = -220; x < 420; x += 24) {
+      out += `<line x1="${x}" y1="0" x2="${x + 220}" y2="220" stroke="${dot}" stroke-width="9" opacity="0.22"/>`;
+    }
+    return out;
+  }
+  return '';
+}
+
+function generateWrapSVG(color, pattern) {
+  const coneD = 'M14 26 Q100 8 186 26 L100 204 Z';
+  return `
+    <svg viewBox="0 0 200 210" xmlns="http://www.w3.org/2000/svg">
+      <defs><clipPath id="wrapClip"><path d="${coneD}"/></clipPath></defs>
+      <path d="${coneD}" fill="${color}"/>
+      <g clip-path="url(#wrapClip)">
+        <path d="M100 26 L186 26 L100 204 Z" fill="#000" opacity="0.06"/>
+        <path d="M14 26 L100 26 L100 204 Z" fill="#fff" opacity="0.15"/>
+        ${wrapPatternGroup(color, pattern)}
+      </g>
+      <path d="${coneD}" fill="none" stroke="${shade(color, -0.22)}" stroke-width="2" opacity="0.35"/>
+    </svg>
+  `;
+}
+
+function generateRibbonSVG(color) {
+  const dark = shade(color, -0.2);
+  return `
+    <svg viewBox="0 0 100 54" xmlns="http://www.w3.org/2000/svg">
+      <path d="M50 27 C 34 6, 4 8, 6 27 C 4 44, 32 34, 50 27 Z" fill="${color}"/>
+      <path d="M50 27 C 66 6, 96 8, 94 27 C 96 44, 68 34, 50 27 Z" fill="${color}"/>
+      <path d="M44 29 L 36 52 L 47 42 Z" fill="${dark}"/>
+      <path d="M56 29 L 64 52 L 53 42 Z" fill="${dark}"/>
+      <circle cx="50" cy="27" r="9" fill="${dark}"/>
+    </svg>
+  `;
+}
+
+function renderWrapVisuals(paperEl, ribbonEl, wrapCol, wrapPat, ribbonCol) {
+  paperEl.innerHTML = generateWrapSVG(wrapCol, wrapPat);
+  ribbonEl.innerHTML = generateRibbonSVG(ribbonCol);
+}
+
+// ===================== bouquet arrangement =====================
+// flowers fan out from a single gathered point (where the ribbon ties)
+// rather than spreading sideways, so it actually reads as one bouquet.
+
+function computeBaseLayout(i, n) {
+  const center = (n - 1) / 2;
+  const offset = i - center;
+  const angleStep = n > 1 ? Math.min(11, 60 / (n - 1)) : 0;
+  const angle = Math.max(-42, Math.min(42, offset * angleStep));
+  const leftStep = n > 1 ? Math.min(9, 46 / (n - 1)) : 0;
+  const leftPx = Math.max(-34, Math.min(34, offset * leftStep));
+  const depthJitter = ((i * 37) % 13) - 6;
+  const bottomPx = Math.abs(offset) * 3 + depthJitter * 0.6;
+  const scale = 1 - Math.min(0.18, Math.abs(offset) * 0.025);
+  const z = Math.round(100 - Math.abs(offset) * 3 + (i % 3));
+  return { angle, leftPx, bottomPx, scale, z };
+}
+
+function layoutForFlower(f, i, n) {
+  const base = computeBaseLayout(i, n);
+  const x = f.pos ? f.pos.x : base.leftPx;
+  const y = f.pos ? f.pos.y : base.bottomPx;
+  const z = f.zOverride != null ? f.zOverride : base.z;
+  return { x, y, angle: base.angle, scale: base.scale, z };
+}
+
 // ===================== state =====================
 
 let currentType = TYPES[0];
 let currentColor = COLORS[0].hex;
-let bouquet = []; // { type, color }
+let bouquet = []; // { type, color, pos?: {x,y}, zOverride? }
+let wrapColor = WRAP_COLORS[0].hex;
+let wrapPattern = 'plain';
+let ribbonColor = RIBBON_COLORS[0].hex;
+let dragTopZ = 200;
 
 // ===================== builder: picker UI =====================
 
@@ -194,6 +306,56 @@ function renderPreview() {
   document.getElementById('previewStage').innerHTML = flowerSVG(currentType, currentColor);
 }
 
+// ===================== builder: wrap customizer UI =====================
+
+function renderWrapCustomizer() {
+  const colorEl = document.getElementById('wrapColorSwatches');
+  colorEl.innerHTML = WRAP_COLORS.map(c => `
+    <button type="button" class="swatch swatch-sm ${c.hex === wrapColor ? 'active' : ''}"
+      style="background:${c.hex}" data-hex="${c.hex}" title="${c.name}" aria-label="${c.name} paper"></button>
+  `).join('');
+  colorEl.querySelectorAll('.swatch').forEach(btn => {
+    btn.addEventListener('click', () => {
+      wrapColor = btn.dataset.hex;
+      renderWrapCustomizer();
+      renderBouquetWrap();
+    });
+  });
+
+  const patternEl = document.getElementById('wrapPatternBtns');
+  patternEl.innerHTML = WRAP_PATTERNS.map(p => `
+    <button type="button" class="pattern-btn ${p === wrapPattern ? 'active' : ''}" data-pattern="${p}">${PATTERN_LABELS[p]}</button>
+  `).join('');
+  patternEl.querySelectorAll('.pattern-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      wrapPattern = btn.dataset.pattern;
+      renderWrapCustomizer();
+      renderBouquetWrap();
+    });
+  });
+
+  const ribbonEl = document.getElementById('ribbonColorSwatches');
+  ribbonEl.innerHTML = RIBBON_COLORS.map(c => `
+    <button type="button" class="swatch swatch-sm ${c.hex === ribbonColor ? 'active' : ''}"
+      style="background:${c.hex}" data-hex="${c.hex}" title="${c.name}" aria-label="${c.name} ribbon"></button>
+  `).join('');
+  ribbonEl.querySelectorAll('.swatch').forEach(btn => {
+    btn.addEventListener('click', () => {
+      ribbonColor = btn.dataset.hex;
+      renderWrapCustomizer();
+      renderBouquetWrap();
+    });
+  });
+}
+
+function renderBouquetWrap() {
+  renderWrapVisuals(
+    document.getElementById('wrapPaper'),
+    document.getElementById('wrapRibbon'),
+    wrapColor, wrapPattern, ribbonColor
+  );
+}
+
 // ===================== builder: bouquet UI =====================
 
 function renderBouquet() {
@@ -203,27 +365,71 @@ function renderBouquet() {
   document.getElementById('emptyMsg').style.display = n === 0 ? 'block' : 'none';
 
   container.innerHTML = bouquet.map((f, i) => {
-    const center = (n - 1) / 2;
-    const offset = i - center;
-    const angle = Math.max(-46, Math.min(46, offset * (n > 7 ? 9 : 13)));
-    const leftPct = 50 + Math.max(-38, Math.min(38, offset * (n > 7 ? 4.2 : 6.5)));
-    const bottomPx = Math.abs(offset) * 6 + (i % 2 === 0 ? 0 : 8);
-    const scale = 1 - Math.min(0.22, Math.abs(offset) * 0.03);
+    const l = layoutForFlower(f, i, n);
     return `
       <div class="bouquet-flower" data-index="${i}"
-        style="left:${leftPct}%; bottom:${bottomPx}px; transform: translateX(-50%) rotate(${angle}deg) scale(${scale}); z-index:${100 - Math.abs(offset)|0}">
+        style="left:calc(50% + ${l.x}px); bottom:${l.y}px; transform: translateX(-50%) rotate(${l.angle}deg) scale(${l.scale}); z-index:${l.z}">
         ${flowerSVG(f.type, f.color)}
       </div>
     `;
   }).join('');
 
   container.querySelectorAll('.bouquet-flower').forEach(el => {
-    el.addEventListener('click', () => {
-      const idx = Number(el.dataset.index);
-      bouquet.splice(idx, 1);
-      renderBouquet();
-    });
+    attachFlowerDragHandlers(el, Number(el.dataset.index));
   });
+}
+
+function attachFlowerDragHandlers(el, index) {
+  let startX = 0, startY = 0, baseX = 0, baseY = 0, moved = false, dragging = false;
+
+  el.addEventListener('pointerdown', (e) => {
+    const n = bouquet.length;
+    const f = bouquet[index];
+    if (!f) return;
+    const base = computeBaseLayout(index, n);
+    baseX = f.pos ? f.pos.x : base.leftPx;
+    baseY = f.pos ? f.pos.y : base.bottomPx;
+    startX = e.clientX;
+    startY = e.clientY;
+    moved = false;
+    dragging = true;
+    el.setPointerCapture(e.pointerId);
+    dragTopZ += 1;
+    el.style.zIndex = dragTopZ;
+    el.style.transition = 'none';
+  });
+
+  el.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) moved = true;
+    if (moved) {
+      const newX = baseX + dx;
+      const newY = baseY - dy;
+      el.style.left = `calc(50% + ${newX}px)`;
+      el.style.bottom = `${newY}px`;
+    }
+  });
+
+  function endDrag(e) {
+    if (!dragging) return;
+    dragging = false;
+    const f = bouquet[index];
+    if (!f) return;
+    if (moved) {
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      f.pos = { x: baseX + dx, y: baseY - dy };
+      f.zOverride = dragTopZ;
+    } else {
+      bouquet.splice(index, 1);
+    }
+    renderBouquet();
+  }
+
+  el.addEventListener('pointerup', endDrag);
+  el.addEventListener('pointercancel', endDrag);
 }
 
 // ===================== events: builder =====================
@@ -300,7 +506,7 @@ function sendBouquet() {
   const recipient = document.getElementById('recipientName').value.trim();
   const sender = document.getElementById('senderName').value.trim();
 
-  const data = { flowers: bouquet, recipient, sender, message };
+  const data = { flowers: bouquet, recipient, sender, message, wrapColor, wrapPattern, ribbonColor };
   const b64 = encodeGift(data);
   const url = `${location.origin}${location.pathname}#gift=${b64}`;
 
@@ -324,17 +530,20 @@ function renderReceivedView(data) {
   document.getElementById('revealMessage').textContent = data.message || '';
   document.getElementById('revealSignature').textContent = data.sender ? `— ${data.sender}` : '';
 
+  renderWrapVisuals(
+    document.getElementById('revealWrapPaper'),
+    document.getElementById('revealWrapRibbon'),
+    data.wrapColor || WRAP_COLORS[0].hex,
+    data.wrapPattern || 'plain',
+    data.ribbonColor || RIBBON_COLORS[0].hex
+  );
+
   const flowersContainer = document.getElementById('revealFlowers');
   const n = data.flowers.length;
   flowersContainer.innerHTML = data.flowers.map((f, i) => {
-    const center = (n - 1) / 2;
-    const offset = i - center;
-    const angle = Math.max(-46, Math.min(46, offset * (n > 7 ? 9 : 13)));
-    const leftPct = 50 + Math.max(-38, Math.min(38, offset * (n > 7 ? 4.2 : 6.5)));
-    const bottomPx = Math.abs(offset) * 6 + (i % 2 === 0 ? 0 : 8);
-    const scale = 1 - Math.min(0.22, Math.abs(offset) * 0.03);
+    const l = layoutForFlower(f, i, n);
     return `
-      <div class="bouquet-flower" style="left:${leftPct}%; bottom:${bottomPx}px; transform: translateX(-50%) rotate(${angle}deg) scale(${scale});">
+      <div class="bouquet-flower" style="left:calc(50% + ${l.x}px); bottom:${l.y}px; transform: translateX(-50%) rotate(${l.angle}deg) scale(${l.scale}); z-index:${l.z}">
         ${flowerSVG(f.type, f.color)}
       </div>
     `;
@@ -418,6 +627,8 @@ function init() {
   renderTypeTabs();
   renderColorSwatches();
   renderPreview();
+  renderWrapCustomizer();
+  renderBouquetWrap();
   renderBouquet();
   initBuilderEvents();
 }

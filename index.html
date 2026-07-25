@@ -42,11 +42,27 @@
     <!-- Bouquet -->
     <div class="card bouquet-card">
       <h2>2. Your bouquet <span class="count-badge" id="flowerCount">0</span></h2>
-      <p class="hint">click a flower to pluck it back out</p>
+      <p class="hint">drag a flower to rearrange it, click (without dragging) to pluck it back out</p>
+
+      <div class="wrap-customizer">
+        <div class="wrap-row">
+          <span class="wrap-label">paper</span>
+          <div class="mini-swatches" id="wrapColorSwatches"></div>
+        </div>
+        <div class="wrap-row">
+          <span class="wrap-label">pattern</span>
+          <div class="pattern-btns" id="wrapPatternBtns"></div>
+        </div>
+        <div class="wrap-row">
+          <span class="wrap-label">ribbon</span>
+          <div class="mini-swatches" id="ribbonColorSwatches"></div>
+        </div>
+      </div>
+
       <div class="bouquet-stage" id="bouquetStage">
-        <div class="wrap-paper" aria-hidden="true"></div>
-        <div class="wrap-ribbon" aria-hidden="true"></div>
+        <div class="wrap-paper" id="wrapPaper" aria-hidden="true"></div>
         <div class="bouquet-flowers" id="bouquetFlowers"></div>
+        <div class="wrap-ribbon" id="wrapRibbon" aria-hidden="true"></div>
         <p class="empty-msg" id="emptyMsg">your bouquet is empty — add some flowers!</p>
       </div>
       <button class="btn btn-ghost" id="clearBtn" type="button">clear bouquet</button>
@@ -105,9 +121,9 @@
   <div class="reveal-scene" id="revealScene" hidden>
     <h1 class="reveal-title" id="revealTitle"></h1>
     <div class="bouquet-stage reveal-bouquet">
-      <div class="wrap-paper" aria-hidden="true"></div>
-      <div class="wrap-ribbon" aria-hidden="true"></div>
+      <div class="wrap-paper" id="revealWrapPaper" aria-hidden="true"></div>
       <div class="bouquet-flowers" id="revealFlowers"></div>
+      <div class="wrap-ribbon" id="revealWrapRibbon" aria-hidden="true"></div>
     </div>
     <div class="note-paper">
       <p id="revealMessage"></p>
