@@ -253,17 +253,14 @@ function computeBaseLayout(i, n) {
 
 function layoutForFlower(f, i, n) {
   const base = computeBaseLayout(i, n);
-  const x = f.pos ? f.pos.x : base.leftPx;
-  const y = f.pos ? f.pos.y : base.bottomPx;
-  const z = f.zOverride != null ? f.zOverride : base.z;
-  return { x, y, angle: base.angle, scale: base.scale, z };
+  return { x: base.leftPx, y: base.bottomPx, angle: base.angle, scale: base.scale, z: base.z };
 }
 
 // ===================== state =====================
 
 let currentType = TYPES[0];
 let currentColor = COLORS[0].hex;
-let bouquet = []; // { type, color, pos?: {x,y}, zOverride? }
+let bouquet = []; // { type, color } — position in the array is its slot in the fan
 let wrapColor = WRAP_COLORS[0].hex;
 let wrapPattern = 'plain';
 let ribbonColor = RIBBON_COLORS[0].hex;
@@ -379,16 +376,22 @@ function renderBouquet() {
   });
 }
 
+// Dragging never lets a flower land at an arbitrary pixel — that's what let
+// stems drift out from behind the wrap/ribbon. Instead the flower follows the
+// pointer visually, and on release it snaps back into one of the fixed fan
+// slots (just possibly a different slot / order), so the geometry always
+// matches computeBaseLayout and the stem always gathers correctly.
 function attachFlowerDragHandlers(el, index) {
-  let startX = 0, startY = 0, baseX = 0, baseY = 0, moved = false, dragging = false;
+  let startX = 0, startY = 0, baseX = 0, baseY = 0, stepPx = 20, moved = false, dragging = false;
 
   el.addEventListener('pointerdown', (e) => {
     const n = bouquet.length;
-    const f = bouquet[index];
-    if (!f) return;
+    if (!bouquet[index]) return;
     const base = computeBaseLayout(index, n);
-    baseX = f.pos ? f.pos.x : base.leftPx;
-    baseY = f.pos ? f.pos.y : base.bottomPx;
+    baseX = base.leftPx;
+    baseY = base.bottomPx;
+    stepPx = n > 1 ? Math.min(9, 46 / (n - 1)) : 20;
+    if (!stepPx) stepPx = 20;
     startX = e.clientX;
     startY = e.clientY;
     moved = false;
@@ -405,23 +408,25 @@ function attachFlowerDragHandlers(el, index) {
     const dy = e.clientY - startY;
     if (Math.abs(dx) > 4 || Math.abs(dy) > 4) moved = true;
     if (moved) {
-      const newX = baseX + dx;
-      const newY = baseY - dy;
-      el.style.left = `calc(50% + ${newX}px)`;
-      el.style.bottom = `${newY}px`;
+      el.style.left = `calc(50% + ${baseX + dx}px)`;
+      el.style.bottom = `${baseY - dy * 0.4}px`;
     }
   });
 
   function endDrag(e) {
     if (!dragging) return;
     dragging = false;
-    const f = bouquet[index];
-    if (!f) return;
+    el.style.transition = '';
+    if (!bouquet[index]) return;
     if (moved) {
       const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-      f.pos = { x: baseX + dx, y: baseY - dy };
-      f.zOverride = dragTopZ;
+      const n = bouquet.length;
+      const indexDelta = Math.round(dx / stepPx);
+      const newIndex = Math.max(0, Math.min(n - 1, index + indexDelta));
+      if (newIndex !== index) {
+        const [item] = bouquet.splice(index, 1);
+        bouquet.splice(newIndex, 0, item);
+      }
     } else {
       bouquet.splice(index, 1);
     }
@@ -477,14 +482,80 @@ function initBuilderEvents() {
 }
 
 // ===================== encode / decode share link =====================
+// Compact format: instead of base64-ing a whole JSON blob (which balloons the
+// URL — every flower used to cost ~35+ chars of {"type":"...","color":"#..."}
+// plus base64's own 33% overhead), each flower is packed into 2 base-36
+// digits (type index + color index) and free text is percent-encoded on its
+// own rather than dragged through base64. This keeps links short enough to
+// actually paste into a text message.
 
-function encodeGift(data) {
-  const json = JSON.stringify(data);
-  const b64 = btoa(unescape(encodeURIComponent(json)));
-  return b64;
+function idxChar(i) {
+  return Math.max(0, i).toString(36);
+}
+function charIdx(c) {
+  return parseInt(c, 36) || 0;
 }
 
-function decodeGift(b64) {
+function encodeGiftCompact(data) {
+  const wrapColorIdx = Math.max(0, WRAP_COLORS.findIndex(c => c.hex === data.wrapColor));
+  const wrapPatternIdx = Math.max(0, WRAP_PATTERNS.indexOf(data.wrapPattern));
+  const ribbonColorIdx = Math.max(0, RIBBON_COLORS.findIndex(c => c.hex === data.ribbonColor));
+  const header = idxChar(wrapColorIdx) + idxChar(wrapPatternIdx) + idxChar(ribbonColorIdx);
+
+  const flowerCodes = data.flowers.map(f => {
+    const typeIdx = Math.max(0, TYPES.indexOf(f.type));
+    const colorIdx = Math.max(0, COLORS.findIndex(c => c.hex === f.color));
+    return idxChar(typeIdx) + idxChar(colorIdx);
+  }).join('');
+
+  const parts = [
+    header + flowerCodes,
+    encodeURIComponent(data.recipient || ''),
+    encodeURIComponent(data.sender || ''),
+    encodeURIComponent(data.message || ''),
+  ];
+  return parts.join('|');
+}
+
+function decodeGiftCompact(str) {
+  try {
+    const parts = str.split('|');
+    if (parts.length < 4) return null;
+    const [head, recipientEnc, senderEnc, messageEnc] = parts;
+
+    const wrapColorIdx = charIdx(head[0]);
+    const wrapPatternIdx = charIdx(head[1]);
+    const ribbonColorIdx = charIdx(head[2]);
+    const flowerCodes = head.slice(3);
+
+    const flowers = [];
+    for (let i = 0; i < flowerCodes.length - 1; i += 2) {
+      const typeIdx = charIdx(flowerCodes[i]);
+      const colorIdx = charIdx(flowerCodes[i + 1]);
+      flowers.push({ type: TYPES[typeIdx] || TYPES[0], color: (COLORS[colorIdx] || COLORS[0]).hex });
+    }
+
+    return {
+      flowers,
+      recipient: decodeURIComponent(recipientEnc || ''),
+      sender: decodeURIComponent(senderEnc || ''),
+      message: decodeURIComponent(messageEnc || ''),
+      wrapColor: (WRAP_COLORS[wrapColorIdx] || WRAP_COLORS[0]).hex,
+      wrapPattern: WRAP_PATTERNS[wrapPatternIdx] || 'plain',
+      ribbonColor: (RIBBON_COLORS[ribbonColorIdx] || RIBBON_COLORS[0]).hex,
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+// Old links (before this fix) encoded the whole gift as base64 JSON in a URL
+// *fragment* (#gift=...). Fragments are never sent in an HTTP request, so any
+// service that rewrites/redirects the link in transit (chat app link
+// previews, safe-link scanners, etc.) silently drops everything after the
+// "#" — the recipient just lands on the bare site. Kept only to still open
+// any old links that are already out in the wild.
+function decodeGiftLegacyBase64(b64) {
   try {
     const json = decodeURIComponent(escape(atob(b64)));
     return JSON.parse(json);
@@ -507,8 +578,11 @@ function sendBouquet() {
   const sender = document.getElementById('senderName').value.trim();
 
   const data = { flowers: bouquet, recipient, sender, message, wrapColor, wrapPattern, ribbonColor };
-  const b64 = encodeGift(data);
-  const url = `${location.origin}${location.pathname}#gift=${b64}`;
+  const compact = encodeGiftCompact(data);
+  // A query param survives link-rewriting redirects that a "#" fragment
+  // doesn't (see decodeGiftLegacyBase64 above) — that's what fixed links
+  // silently dropping the gift for the recipient.
+  const url = `${location.origin}${location.pathname}?gift=${encodeURIComponent(compact)}`;
 
   document.getElementById('shareLink').value = url;
   document.getElementById('copiedMsg').hidden = true;
@@ -615,9 +689,17 @@ function spawnFallingPetals(count) {
 function init() {
   spawnDriftPetals();
 
-  const hash = location.hash;
-  if (hash.startsWith('#gift=')) {
-    const data = decodeGift(hash.slice(6));
+  const giftParam = new URLSearchParams(location.search).get('gift');
+  if (giftParam) {
+    const data = decodeGiftCompact(giftParam);
+    if (data && data.flowers.length) {
+      renderReceivedView(data);
+      return;
+    }
+  }
+
+  if (location.hash.startsWith('#gift=')) {
+    const data = decodeGiftLegacyBase64(location.hash.slice(6));
     if (data && Array.isArray(data.flowers) && data.flowers.length) {
       renderReceivedView(data);
       return;
