@@ -130,15 +130,15 @@ function drawPeony(color) {
 }
 
 function drawRose(color) {
-  const mid = shade(color, -0.08);
-  const dark = shade(color, -0.22);
-  const outer = petalRing(50, 58, 8, 9, 16, 16, color, 5);
-  const midRing = petalRing(50, 58, 6, 7, 12, 9, mid, 20);
+  const mid = shade(color, -0.1);
+  const dark = shade(color, -0.24);
+  const outerPetals = petalRing(50, 56, 6, 14, 19, 11, mid, 0);
   return svgWrap(`
-    ${stemAndLeaves(70)}
-    ${outer}
-    ${midRing}
-    <path d="M50 58 C 46 54, 46 50, 50 48 C 54 50, 54 54, 50 58 Z" fill="${dark}"/>
+    ${stemAndLeaves(72)}
+    ${outerPetals}
+    <circle cx="50" cy="56" r="16" fill="${color}"/>
+    <path d="M50 56 m -9 1 a 9 9 0 1 1 18 -1 a 6.3 6.3 0 1 1 -12.6 0.8 a 3.6 3.6 0 1 1 7.2 -0.5"
+      fill="none" stroke="${dark}" stroke-width="2.2" stroke-linecap="round"/>
   `);
 }
 
@@ -245,7 +245,7 @@ function computeBaseLayout(i, n) {
   const leftStep = n > 1 ? Math.min(9, 46 / (n - 1)) : 0;
   const leftPx = Math.max(-34, Math.min(34, offset * leftStep));
   const depthJitter = ((i * 37) % 13) - 6;
-  const bottomPx = Math.abs(offset) * 3 + depthJitter * 0.6;
+  const bottomPx = 14 + Math.abs(offset) * 3 + depthJitter * 0.6;
   const scale = 1 - Math.min(0.18, Math.abs(offset) * 0.025);
   const z = Math.round(100 - Math.abs(offset) * 3 + (i % 3));
   return { angle, leftPx, bottomPx, scale, z };
@@ -689,6 +689,17 @@ function spawnFallingPetals(count) {
 function init() {
   spawnDriftPetals();
 
+  // Always set up the builder, even when we're about to show the received
+  // view instead — "send one back" reveals this same builderView, and it
+  // needs to already be a working page underneath, not an empty shell.
+  renderTypeTabs();
+  renderColorSwatches();
+  renderPreview();
+  renderWrapCustomizer();
+  renderBouquetWrap();
+  renderBouquet();
+  initBuilderEvents();
+
   const giftParam = new URLSearchParams(location.search).get('gift');
   if (giftParam) {
     const data = decodeGiftCompact(giftParam);
@@ -705,14 +716,6 @@ function init() {
       return;
     }
   }
-
-  renderTypeTabs();
-  renderColorSwatches();
-  renderPreview();
-  renderWrapCustomizer();
-  renderBouquetWrap();
-  renderBouquet();
-  initBuilderEvents();
 }
 
 document.addEventListener('DOMContentLoaded', init);
