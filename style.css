@@ -331,7 +331,7 @@ h1, h2 {
 }
 .field input:focus, .field textarea:focus { border-color: var(--pink); }
 .field-note textarea {
-  min-height: 90px;
+  min-height: 160px;
   resize: vertical;
   font-family: 'Caveat', cursive;
   font-size: 1.35rem;
