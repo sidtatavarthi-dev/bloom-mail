@@ -237,13 +237,21 @@ function renderWrapVisuals(paperEl, ribbonEl, wrapCol, wrapPat, ribbonCol) {
 // flowers fan out from a single gathered point (where the ribbon ties)
 // rather than spreading sideways, so it actually reads as one bouquet.
 
+// Spacing between adjacent flower slots. Flowers are ~66px wide, so a step
+// much smaller than that just stacks them on top of each other regardless of
+// how many are in the bouquet — this is what made bouquets look "bunched up".
+function slotLeftStep(n) {
+  return n > 1 ? Math.min(24, 140 / (n - 1)) : 0;
+}
+function slotAngleStep(n) {
+  return n > 1 ? Math.min(17, 130 / (n - 1)) : 0;
+}
+
 function computeBaseLayout(i, n) {
   const center = (n - 1) / 2;
   const offset = i - center;
-  const angleStep = n > 1 ? Math.min(11, 60 / (n - 1)) : 0;
-  const angle = Math.max(-42, Math.min(42, offset * angleStep));
-  const leftStep = n > 1 ? Math.min(9, 46 / (n - 1)) : 0;
-  const leftPx = Math.max(-34, Math.min(34, offset * leftStep));
+  const angle = Math.max(-55, Math.min(55, offset * slotAngleStep(n)));
+  const leftPx = Math.max(-95, Math.min(95, offset * slotLeftStep(n)));
   const depthJitter = ((i * 37) % 13) - 6;
   const bottomPx = 14 + Math.abs(offset) * 3 + depthJitter * 0.6;
   const scale = 1 - Math.min(0.18, Math.abs(offset) * 0.025);
@@ -390,8 +398,7 @@ function attachFlowerDragHandlers(el, index) {
     const base = computeBaseLayout(index, n);
     baseX = base.leftPx;
     baseY = base.bottomPx;
-    stepPx = n > 1 ? Math.min(9, 46 / (n - 1)) : 20;
-    if (!stepPx) stepPx = 20;
+    stepPx = slotLeftStep(n) || 20;
     startX = e.clientX;
     startY = e.clientY;
     moved = false;
