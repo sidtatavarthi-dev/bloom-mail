@@ -492,15 +492,105 @@ function initBuilderEvents() {
 // Compact format: instead of base64-ing a whole JSON blob (which balloons the
 // URL — every flower used to cost ~35+ chars of {"type":"...","color":"#..."}
 // plus base64's own 33% overhead), each flower is packed into 2 base-36
-// digits (type index + color index) and free text is percent-encoded on its
-// own rather than dragged through base64. This keeps links short enough to
-// actually paste into a text message.
+// digits (type index + color index). Free text (recipient/sender/message,
+// now up to 5000 chars) is the dominant cost once notes get long, so it's
+// LZW-compressed and packed 2 chars per code — falling back to plain percent
+// -encoding for short strings where compression overhead would lose.
 
 function idxChar(i) {
   return Math.max(0, i).toString(36);
 }
 function charIdx(c) {
   return parseInt(c, 36) || 0;
+}
+
+// Fixed 4096-entry dictionary (12 bits) so every code fits exactly 2 chars
+// from a 64-symbol, URL-safe alphabet — no percent-encoding needed at all.
+const PACK_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+const PACK_INDEX = (() => {
+  const m = {};
+  for (let i = 0; i < PACK_ALPHABET.length; i++) m[PACK_ALPHABET[i]] = i;
+  return m;
+})();
+const LZW_DICT_LIMIT = 4096;
+
+function lzwCompressBytes(bytes) {
+  const dict = new Map();
+  for (let i = 0; i < 256; i++) dict.set(String.fromCharCode(i), i);
+  let dictSize = 256;
+  let w = '';
+  const codes = [];
+  for (let i = 0; i < bytes.length; i++) {
+    const c = String.fromCharCode(bytes[i]);
+    const wc = w + c;
+    if (dict.has(wc)) {
+      w = wc;
+    } else {
+      codes.push(dict.get(w));
+      if (dictSize < LZW_DICT_LIMIT) dict.set(wc, dictSize++);
+      w = c;
+    }
+  }
+  if (w !== '') codes.push(dict.get(w));
+  return codes;
+}
+
+function lzwDecompressBytes(codes) {
+  const dict = new Map();
+  for (let i = 0; i < 256; i++) dict.set(i, String.fromCharCode(i));
+  let dictSize = 256;
+  let w = dict.get(codes[0]);
+  let result = w;
+  for (let i = 1; i < codes.length; i++) {
+    const k = codes[i];
+    let entry;
+    if (dict.has(k)) entry = dict.get(k);
+    else if (k === dictSize) entry = w + w[0];
+    else throw new Error('bad LZW code');
+    result += entry;
+    if (dictSize < LZW_DICT_LIMIT) dict.set(dictSize++, w + entry[0]);
+    w = entry;
+  }
+  const out = new Uint8Array(result.length);
+  for (let i = 0; i < result.length; i++) out[i] = result.charCodeAt(i);
+  return out;
+}
+
+function packCodes(codes) {
+  let out = '';
+  for (const code of codes) {
+    out += PACK_ALPHABET[Math.floor(code / 64)] + PACK_ALPHABET[code % 64];
+  }
+  return out;
+}
+
+function unpackCodes(str) {
+  const codes = [];
+  for (let i = 0; i < str.length - 1; i += 2) {
+    codes.push(PACK_INDEX[str[i]] * 64 + PACK_INDEX[str[i + 1]]);
+  }
+  return codes;
+}
+
+// Picks whichever of {plain percent-encoding, LZW-compressed} is shorter,
+// tagged with a 1-char marker so decodeField knows which one it's looking at.
+function encodeField(str) {
+  const raw = 'r' + encodeURIComponent(str || '');
+  if (!str) return raw;
+  const bytes = new TextEncoder().encode(str);
+  const compressed = 'c' + packCodes(lzwCompressBytes(bytes));
+  return compressed.length < raw.length ? compressed : raw;
+}
+
+function decodeField(encoded) {
+  if (!encoded) return '';
+  const marker = encoded[0];
+  const rest = encoded.slice(1);
+  if (marker === 'c') {
+    if (!rest) return '';
+    return new TextDecoder().decode(lzwDecompressBytes(unpackCodes(rest)));
+  }
+  return decodeURIComponent(rest);
 }
 
 function encodeGiftCompact(data) {
@@ -517,9 +607,9 @@ function encodeGiftCompact(data) {
 
   const parts = [
     header + flowerCodes,
-    encodeURIComponent(data.recipient || ''),
-    encodeURIComponent(data.sender || ''),
-    encodeURIComponent(data.message || ''),
+    encodeField(data.recipient || ''),
+    encodeField(data.sender || ''),
+    encodeField(data.message || ''),
   ];
   return parts.join('|');
 }
@@ -544,9 +634,9 @@ function decodeGiftCompact(str) {
 
     return {
       flowers,
-      recipient: decodeURIComponent(recipientEnc || ''),
-      sender: decodeURIComponent(senderEnc || ''),
-      message: decodeURIComponent(messageEnc || ''),
+      recipient: decodeField(recipientEnc),
+      sender: decodeField(senderEnc),
+      message: decodeField(messageEnc),
       wrapColor: (WRAP_COLORS[wrapColorIdx] || WRAP_COLORS[0]).hex,
       wrapPattern: WRAP_PATTERNS[wrapPatternIdx] || 'plain',
       ribbonColor: (RIBBON_COLORS[ribbonColorIdx] || RIBBON_COLORS[0]).hex,
@@ -588,8 +678,11 @@ function sendBouquet() {
   const compact = encodeGiftCompact(data);
   // A query param survives link-rewriting redirects that a "#" fragment
   // doesn't (see decodeGiftLegacyBase64 above) — that's what fixed links
-  // silently dropping the gift for the recipient.
-  const url = `${location.origin}${location.pathname}?gift=${encodeURIComponent(compact)}`;
+  // silently dropping the gift for the recipient. `compact` is already
+  // built entirely from URL-safe characters (base36 digits, our own
+  // alphabet, and encodeURIComponent'd text), so it needs no further
+  // wrapping — that would've just doubled-up the escaping and cost length.
+  const url = `${location.origin}${location.pathname}?gift=${compact}`;
 
   document.getElementById('shareLink').value = url;
   document.getElementById('copiedMsg').hidden = true;
